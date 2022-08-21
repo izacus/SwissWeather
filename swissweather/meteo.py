@@ -5,7 +5,7 @@ import requests
 import logging
 import itertools
 from datetime import datetime, timezone, timedelta
-from typing import Optional, NewType
+from typing import Optional, NewType, List, Dict, Tuple
 
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ CONDITION_CLASSES = {
     "exceptional": [],
 }
 
-ICON_TO_CONDITION_MAP =  {i: k for k, v in CONDITION_CLASSES.items() for i in v}
+ICON_TO_CONDITION_MAP : Dict[int, str] =  {i: k for k, v in CONDITION_CLASSES.items() for i in v}
 
 """
 Returns float or None
@@ -57,7 +57,7 @@ def to_int(string: str) -> Optional[int]:
     except ValueError:
         return None
 
-FloatValue = NewType('FloatValue', tuple[Optional[float], str])
+FloatValue = NewType('FloatValue', Tuple[Optional[float], str])
 
 @dataclass
 class StationInfo(object):
@@ -111,10 +111,10 @@ class Forecast(object):
 @dataclass
 class WeatherForecast(object):
     current: CurrentState
-    dailyForecast: list[Forecast]
-    hourlyForecast: list[Forecast]
-    sunrise: list[datetime]
-    sunset: list[datetime]
+    dailyForecast: List[Forecast]
+    hourlyForecast: List[Forecast]
+    sunrise: List[datetime]
+    sunset: List[datetime]
 
 class MeteoClient(object):
     language: str = "en"
@@ -127,7 +127,7 @@ class MeteoClient(object):
     def __init__(self, language="en"):
         self.language = language
 
-    def get_current_weather_for_all_stations(self) -> Optional[list[CurrentWeather]]:
+    def get_current_weather_for_all_stations(self) -> Optional[List[CurrentWeather]]:
         logger.debug("Retrieving current weather for all stations ...")
         data = self._get_csv_dictionary_for_url(CURRENT_CONDITION_URL)
         weather = []
@@ -145,7 +145,7 @@ class MeteoClient(object):
         return self._get_current_data_for_row(data)
 
     @functools.lru_cache(maxsize=1)
-    def get_all_stations(self, temperatureOnly = False) -> dict[str, StationInfo]:
+    def get_all_stations(self, temperatureOnly = False) -> Dict[str, StationInfo]:
         SKIP_NAMES = ['creation_time', 'map_short_name', 'license']
         all_station_data = self._get_csv_dictionary_for_url(STATION_URL.format(self.language), encoding='latin1')
         stations = {}
@@ -240,8 +240,8 @@ class MeteoClient(object):
             (to_float(forecastJson.get('currentWeather', {}).get('temperature')), "°C"),
             currentIcon, currentCondition)        
         
-    def _get_daily_forecast(self, forecastJson) -> Optional[list[Forecast]]:
-        forecast: list[Forecast] = []
+    def _get_daily_forecast(self, forecastJson) -> Optional[List[Forecast]]:
+        forecast: List[Forecast] = []
         if "forecast" not in forecastJson:
             return forecast
 
@@ -257,7 +257,7 @@ class MeteoClient(object):
             forecast.append(Forecast(timestamp, icon, condition, temperatureMax, temperatureMin, precipitation))
         return forecast
 
-    def _get_hourly_forecast(self, forecastJson) -> Optional[list[Forecast]]:
+    def _get_hourly_forecast(self, forecastJson) -> Optional[List[Forecast]]:
         graphJson = forecastJson.get("graph", None)
         if graphJson is None:
             return None
