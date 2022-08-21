@@ -207,8 +207,11 @@ class MeteoClient(object):
             return None            
 
     ## Forecast
-    def get_forecast(self, postCode) -> WeatherForecast:
+    def get_forecast(self, postCode) -> Optional[WeatherForecast]:
         forecastJson = self._get_forecast_json(postCode)
+        if forecastJson is None:
+            return None
+
         currentState = self._get_current_state(forecastJson)
         dailyForecast = self._get_daily_forecast(forecastJson)
         hourlyForecast = self._get_hourly_forecast(forecastJson)

@@ -16,4 +16,4 @@ setup(name="SwissWeather",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
       ],            
-      packages=["swiss-weather"])
+      packages=["swissweather"])
