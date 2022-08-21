@@ -34,7 +34,7 @@ CONDITION_CLASSES = {
     "exceptional": [],
 }
 
-ICON_TO_CONDITION_MAP : dict[int, str] =  {i: k for k, v in CONDITION_CLASSES.items() for i in v}
+ICON_TO_CONDITION_MAP =  {i: k for k, v in CONDITION_CLASSES.items() for i in v}
 
 """
 Returns float or None
