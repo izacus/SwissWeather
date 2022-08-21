@@ -3,20 +3,13 @@ from dataclasses import dataclass
 import functools
 import requests
 import logging
+import json
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-MS_BASE_URL = 'https://www.meteosuisse.admin.ch'
 STATION_URL = "https://data.geo.admin.ch/ch.meteoschweiz.messnetz-automatisch/ch.meteoschweiz.messnetz-automatisch_en.csv"
 CURRENT_CONDITION_URL= 'https://data.geo.admin.ch/ch.meteoschweiz.messwerte-aktuell/VQHA80.csv'
-
-JSON_FORECAST_URL = 'https://app-prod-ws.meteoswiss-app.ch/v1/forecast?plz={}00&graph=false&warning=true'
-MS_SEARCH_URL = 'https://www.meteosuisse.admin.ch/home/actualite/infos.html?ort={}&pageIndex=0&tab=search_tab'
-
-
-MS_24FORECAST_URL = "https://www.meteosuisse.admin.ch/product/output/forecast-chart/{}/fr/{}00.json"
-MS_24FORECAST_REF = "https://www.meteosuisse.admin.ch//content/meteoswiss/fr/home.mobile.meteo-products--overview.html"
 
 """
 Returns float or None
@@ -39,6 +32,7 @@ class StationInfo(object):
     lat: float
     lng: float
     canton: str
+    postCode: int = 0
 
     def __str__(self) -> str:
         return f"Station {self.abbreviation} - [Name: {self.name}, Lat: {self.lat}, Lng: {self.lng}, Canton: {self.canton}]"
@@ -49,6 +43,15 @@ class StationInfo(object):
 class MeteoClient(object):
     def __init__(self):
         logger.debug("Initializing client.")
+
+    def get_data_for_station(self, station: str):
+        current_state = self.get_current_weather_for_station(station)
+        extended_station = self._get_extended_station(station)
+        if extended_station is not None and extended_station.postCode > 0:
+            current_state["station"] = extended_station
+            forecast = self.get_forecast(extended_station.postCode)
+            current_state["forecast"] = forecast
+        return current_state
 
     def get_current_weather_for_all_stations(self):
         logger.debug("Retrieving current weather for all stations ...")
@@ -68,13 +71,16 @@ class MeteoClient(object):
         return self._get_current_data_for_row(data)
 
     @functools.lru_cache(maxsize=1)
-    def get_all_stations(self):
+    def get_all_stations(self, temperatureOnly = False) -> list[StationInfo]:
         SKIP_NAMES = ['creation_time', 'map_short_name', 'license']
         all_station_data = self._get_csv_dictionary_for_url(STATION_URL, encoding='latin1')
         stations = {}
         for row in all_station_data:            
             if row.get('Station', None) in SKIP_NAMES:
                 continue
+            if temperatureOnly and "Temperature" not in row.get('Measurements', ""):
+                continue
+
             abbr = row.get('Abbr.', None)
             stations[abbr] = StationInfo(
                 row.get('Station', None),
@@ -87,6 +93,35 @@ class MeteoClient(object):
             )      
         return stations
 
+    def _get_extended_station(self, abbreviation: str) -> StationInfo:
+        stations = self.get_all_stations()
+        station = stations.get(abbreviation)
+        if station is None:
+            return None
+
+        # Resolve post code
+        if station.postCode == 0:
+            code = self._get_post_code_for_station(station.lat, station.lng)
+            if code is not None:
+                logger.info(f"Resolved {abbreviation} to {code}.")
+                station.postCode = int(code)
+        return station
+
+    def _get_post_code_for_station(self, lat: float, lng: float) -> int:
+        s = requests.Session()
+        lat = str(lat)
+        lng = str(lng)
+        s.headers.update({"Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Encoding":"gzip, deflate, sdch",'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/1337 Safari/537.36'})
+        geoData = s.get("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat="+lat+"&lon="+lng+"&zoom=18").text
+        logger.debug("Got data from opensteetmap: %s"%(geoData))
+        geoData = json.loads(geoData)
+        try:
+            return geoData["address"]["postcode"]
+        except:
+            logger.warning("Unable to get post code for location lat : %s lon : %s"%(lat,lng))
+            return None
+
     def _get_current_data_for_row(self, csv_row):
         timestamp = None
         timestamp_raw = csv_row.get('Date', None)
@@ -94,7 +129,7 @@ class MeteoClient(object):
             timestamp = datetime.strptime(timestamp_raw, '%Y%m%d%H%M').replace(tzinfo=timezone.utc)
         
         station_data = {
-            "station": csv_row.get('Station/Location'),
+            "station": self.get_all_stations().get(csv_row.get('Station/Location')),
             "date": timestamp,
             "air_temperature": (to_float(csv_row.get('tre200s0', None)), "°C") ,
             "precipitation_10min": (to_float(csv_row.get('rre150z0', None)), "mm"),
