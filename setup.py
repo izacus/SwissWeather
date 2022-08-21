@@ -6,7 +6,9 @@ setup(name="SwissWeather",
       license="GPLv2+",
       author="Jernej Virag",
       author_email="jernej@virag.si",      
+      setup_requires=['pytest-runner==5.3.1'],
       install_requires = ["requests==2.28.1"],
+      tests_require = ["responses==0.13.3", "pytest==7.1.2"],
       classifiers=[
         "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
         "Operating System :: OS Independent",
@@ -16,4 +18,5 @@ setup(name="SwissWeather",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
       ],            
-      packages=["swissweather"])
+      packages=["swissweather"],
+      test_suite="tests")

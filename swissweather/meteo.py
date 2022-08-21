@@ -174,7 +174,7 @@ class MeteoClient(object):
             timestamp = datetime.strptime(timestamp_raw, '%Y%m%d%H%M').replace(tzinfo=timezone.utc)
         
         station_data = CurrentWeather(
-            self.get_all_stations().get(csv_row.get('Station/Location')),
+            csv_row.get('Station/Location'),
             timestamp,
             (to_float(csv_row.get('tre200s0', None)), "°C") ,
             (to_float(csv_row.get('rre150z0', None)), "mm"),
