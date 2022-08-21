@@ -10,7 +10,7 @@ from typing import Optional, NewType
 
 logger = logging.getLogger(__name__)
 
-STATION_URL = "https://data.geo.admin.ch/ch.meteoschweiz.messnetz-automatisch/ch.meteoschweiz.messnetz-automatisch_en.csv"
+STATION_URL = "https://data.geo.admin.ch/ch.meteoschweiz.messnetz-automatisch/ch.meteoschweiz.messnetz-automatisch_{}.csv"
 CURRENT_CONDITION_URL= 'https://data.geo.admin.ch/ch.meteoschweiz.messwerte-aktuell/VQHA80.csv'
 
 FORECAST_URL= "https://app-prod-ws.meteoswiss-app.ch/v1/plzDetail?plz={}00"
@@ -117,8 +117,15 @@ class WeatherForecast(object):
     sunset: list[datetime]
 
 class MeteoClient(object):
-    def __init__(self):
-        logger.debug("Initializing client.")
+    language: str = "en"
+
+    """
+    Initializes the client.
+
+    Languages available are en, de, fr and it.
+    """
+    def __init__(self, language="en"):
+        self.language = language
 
     def get_current_weather_for_all_stations(self) -> Optional[list[CurrentWeather]]:
         logger.debug("Retrieving current weather for all stations ...")
@@ -140,7 +147,7 @@ class MeteoClient(object):
     @functools.lru_cache(maxsize=1)
     def get_all_stations(self, temperatureOnly = False) -> dict[str, StationInfo]:
         SKIP_NAMES = ['creation_time', 'map_short_name', 'license']
-        all_station_data = self._get_csv_dictionary_for_url(STATION_URL, encoding='latin1')
+        all_station_data = self._get_csv_dictionary_for_url(STATION_URL.format(self.language), encoding='latin1')
         stations = {}
         for row in all_station_data:            
             if row.get('Station', None) in SKIP_NAMES:
@@ -200,8 +207,8 @@ class MeteoClient(object):
             return None            
 
     ## Forecast
-    def get_forecast(self, postCode, language="en") -> WeatherForecast:
-        forecastJson = self._get_forecast_json(postCode, langugage=language)
+    def get_forecast(self, postCode) -> WeatherForecast:
+        forecastJson = self._get_forecast_json(postCode)
         currentState = self._get_current_state(forecastJson)
         dailyForecast = self._get_daily_forecast(forecastJson)
         hourlyForecast = self._get_hourly_forecast(forecastJson)
@@ -280,12 +287,12 @@ class MeteoClient(object):
                                       temperatureMean=tMean))
         return forecast
 
-    def _get_forecast_json(self, postCode, langugage="en"):
+    def _get_forecast_json(self, postCode):
         try:
             url = FORECAST_URL.format(postCode)
             return requests.get(url, headers = 
                 { "User-Agent": FORECAST_USER_AGENT, 
-                  "Accept-Language": langugage, 
+                  "Accept-Language": self.language, 
                   "Accept": "application/json" }).json()
         except requests.exceptions.RequestException as e:
             logger.error("Connection failure.", exc_info=1)
