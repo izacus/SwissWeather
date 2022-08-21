@@ -3,9 +3,9 @@ from dataclasses import dataclass
 import functools
 import requests
 import logging
-import json
-from datetime import datetime, timezone
-from typing import NewType
+import itertools
+from datetime import datetime, timezone, timedelta
+from typing import Optional, NewType
 
 
 logger = logging.getLogger(__name__)
@@ -34,12 +34,12 @@ CONDITION_CLASSES = {
     "exceptional": [],
 }
 
-ICON_TO_CONDITION_MAP =  {i: k for k, v in CONDITION_CLASSES.items() for i in v}
+ICON_TO_CONDITION_MAP : dict[int, str] =  {i: k for k, v in CONDITION_CLASSES.items() for i in v}
 
 """
 Returns float or None
 """
-def to_float(string: str) -> float:
+def to_float(string: str) -> Optional[float]:
     if string is None:
         return None
 
@@ -48,7 +48,7 @@ def to_float(string: str) -> float:
     except ValueError:
         return None
 
-def to_int(string: str) -> float:
+def to_int(string: str) -> Optional[int]:
     if string is None:
         return None
 
@@ -57,7 +57,7 @@ def to_int(string: str) -> float:
     except ValueError:
         return None
 
-FloatValue = NewType('FloatValue', tuple[float, str])
+FloatValue = NewType('FloatValue', tuple[Optional[float], str])
 
 @dataclass
 class StationInfo(object):
@@ -71,9 +71,6 @@ class StationInfo(object):
 
     def __str__(self) -> str:
         return f"Station {self.abbreviation} - [Name: {self.name}, Lat: {self.lat}, Lng: {self.lng}, Canton: {self.canton}]"
-
-    def __hash__(self) -> int:
-        return hash(self.name, self.abbreviation)
 
 @dataclass
 class CurrentWeather(object):
@@ -96,27 +93,34 @@ class CurrentWeather(object):
 class CurrentState(object):
     currentTemperature: FloatValue
     currentIcon: int
-    currentCondition: str    
+    currentCondition: Optional[str] # None if icon is unrecognized.
 
 @dataclass
 class Forecast(object):
     timestamp: datetime
     icon: int
-    condition: str
+    condition: Optional[str] # None if icon is unrecognized.
     temperatureMax: FloatValue
     temperatureMin: FloatValue
     precipitation: FloatValue
+    # Only available for hourly forecast
+    temperatureMean: Optional[FloatValue] = None
+    windSpeed: Optional[FloatValue] = None
+    windDirection: Optional[FloatValue] = None
 
 @dataclass
 class WeatherForecast(object):
     current: CurrentState
     dailyForecast: list[Forecast]
+    hourlyForecast: list[Forecast]
+    sunrise: list[datetime]
+    sunset: list[datetime]
 
 class MeteoClient(object):
     def __init__(self):
         logger.debug("Initializing client.")
 
-    def get_current_weather_for_all_stations(self) -> list[CurrentWeather]:
+    def get_current_weather_for_all_stations(self) -> Optional[list[CurrentWeather]]:
         logger.debug("Retrieving current weather for all stations ...")
         data = self._get_csv_dictionary_for_url(CURRENT_CONDITION_URL)
         weather = []
@@ -124,7 +128,7 @@ class MeteoClient(object):
             weather.append(self._get_current_data_for_row(row))
         return weather
 
-    def get_current_weather_for_station(self, station: str) -> CurrentWeather:
+    def get_current_weather_for_station(self, station: str) -> Optional[CurrentWeather]:
         logger.debug("Retrieving current weather...")
         data = self._get_current_weather_line_for_station(station)
         if data is None:
@@ -134,7 +138,7 @@ class MeteoClient(object):
         return self._get_current_data_for_row(data)
 
     @functools.lru_cache(maxsize=1)
-    def get_all_stations(self, temperatureOnly = False) -> list[StationInfo]:
+    def get_all_stations(self, temperatureOnly = False) -> dict[str, StationInfo]:
         SKIP_NAMES = ['creation_time', 'map_short_name', 'license']
         all_station_data = self._get_csv_dictionary_for_url(STATION_URL, encoding='latin1')
         stations = {}
@@ -156,7 +160,7 @@ class MeteoClient(object):
             )      
         return stations
 
-    def _get_current_data_for_row(self, csv_row):
+    def _get_current_data_for_row(self, csv_row) -> CurrentWeather:
         timestamp = None
         timestamp_raw = csv_row.get('Date', None)
         if timestamp_raw is not None:
@@ -200,9 +204,21 @@ class MeteoClient(object):
         forecastJson = self._get_forecast_json(postCode, langugage=language)
         currentState = self._get_current_state(forecastJson)
         dailyForecast = self._get_daily_forecast(forecastJson)
-        return WeatherForecast(currentState, dailyForecast)    
+        hourlyForecast = self._get_hourly_forecast(forecastJson)
+        
+        sunrises = None
+        sunriseJson = forecastJson.get("graph", {}).get("sunrise", None)
+        if sunriseJson is not None:
+            sunrises = [datetime.fromtimestamp(epoch / 1000, timezone.utc) for epoch in sunriseJson]
 
-    def _get_current_state(self, forecastJson) -> CurrentState:
+        sunsets = None
+        sunsetJson = forecastJson.get("graph", {}).get("sunset", None)
+        if sunsetJson is not None:
+            sunsets = [datetime.fromtimestamp(epoch / 1000, timezone.utc) for epoch in sunsetJson]
+
+        return WeatherForecast(currentState, dailyForecast, hourlyForecast, sunrises, sunsets)    
+
+    def _get_current_state(self, forecastJson) -> Optional[CurrentState]:
         if "currentWeather" not in forecastJson:
             return None
 
@@ -214,8 +230,8 @@ class MeteoClient(object):
             (to_float(forecastJson.get('currentWeather', {}).get('temperature')), "°C"),
             currentIcon, currentCondition)        
         
-    def _get_daily_forecast(self, forecastJson) -> list[Forecast]:
-        forecast = []
+    def _get_daily_forecast(self, forecastJson) -> Optional[list[Forecast]]:
+        forecast: list[Forecast] = []
         if "forecast" not in forecastJson:
             return forecast
 
@@ -229,6 +245,39 @@ class MeteoClient(object):
             temperatureMin = (to_float(dailyJson.get('temperatureMin', None)), "°C")
             precipitation = (to_float(dailyJson.get('precipitation', None)), "mm")
             forecast.append(Forecast(timestamp, icon, condition, temperatureMax, temperatureMin, precipitation))
+        return forecast
+
+    def _get_hourly_forecast(self, forecastJson) -> Optional[list[Forecast]]:
+        graphJson = forecastJson.get("graph", None)
+        if graphJson is None:
+            return None
+
+        startTimestampEpoch = to_int(graphJson.get('start', None))
+        if startTimestampEpoch is None:
+            return None
+        startTimestamp = datetime.fromtimestamp(startTimestampEpoch / 1000, timezone.utc)        
+        
+
+        forecast = []
+        temperatureMaxList = [ (value, "°C") for value in graphJson.get("temperatureMax1h", [])]
+        temperatureMeanList = [ (value, "°C") for value in graphJson.get("temperatureMean1h", [])]
+        temperatureMinList = [ (value, "°C") for value in graphJson.get("temperatureMin1h", [])]
+        precipitationList = [ (value, "mm") for value in graphJson.get("precipitation1h", [])]        
+
+        # We get icons only once every 3 hours so we need to expand each elemen 3-times to match
+        iconList = list(itertools.chain.from_iterable(itertools.repeat(x, 3) for x in graphJson.get("weatherIcon3h", [])))
+
+        windDirectionlist = list(itertools.chain.from_iterable(itertools.repeat((x, "km/h"), 3) for x in graphJson.get("windDirection3h", [])))
+        windSpeedList = list(itertools.chain.from_iterable(itertools.repeat((x, "°"), 3) for x in graphJson.get("windSpeed3h", [])))
+
+        # This is the minimum amount of data we have
+        minForecastHours = min(len(temperatureMaxList), len(temperatureMeanList), len(temperatureMinList), len(precipitationList), len(iconList))
+        timestampList = [ startTimestamp + timedelta(hours=value) for value in range(0, minForecastHours) ]
+
+        for ts, icon, tMax, tMean, tMin, precipitation, windDirection, windSpeed in zip(timestampList, iconList, temperatureMaxList, 
+                                                        temperatureMeanList, temperatureMinList, precipitationList, windDirectionlist, windSpeedList):
+            forecast.append(Forecast(ts, icon, ICON_TO_CONDITION_MAP.get(icon, None), tMax, tMin, precipitation, windSpeed=windSpeed, windDirection=windDirection,
+                                      temperatureMean=tMean))
         return forecast
 
     def _get_forecast_json(self, postCode, langugage="en"):
