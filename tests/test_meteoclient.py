@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import unittest
 import os
 import responses
@@ -126,7 +126,7 @@ class TestMeteoClient(unittest.TestCase):
         print(status)
 
         self.assertEqual(status.stationAbbr, 'PBE')
-        self.assertEqual(status.timestamp, datetime(2025, 5, 28, 23, 0, tzinfo=UTC))
+        self.assertEqual(status.timestamp, datetime(2025, 5, 28, 23, 0, tzinfo=timezone.utc))
         self.assertEqual(status.birch[0], 43)
         self.assertEqual(status.grasses[0], 6)
         self.assertEqual(status.alder[0], 33)
