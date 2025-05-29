@@ -10,6 +10,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 CURRENT_CONDITION_URL= 'https://data.geo.admin.ch/ch.meteoschweiz.messwerte-aktuell/VQHA80.csv'
+POLLEN_STATIONS_URL = 'https://data.geo.admin.ch/ch.meteoschweiz.ogd-pollen/ogd-pollen_meta_stations.csv'
+POLLEN_DATA_URL = "https://data.geo.admin.ch/ch.meteoschweiz.ogd-pollen/{}/ogd-pollen_{}_d_recent.csv"
 
 FORECAST_URL= "https://app-prod-ws.meteoswiss-app.ch/v1/plzDetail?plz={:<06d}"
 FORECAST_USER_AGENT = "android-31 ch.admin.meteoswiss-2160000"
@@ -114,6 +116,18 @@ class WeatherForecast(object):
     hourlyForecast: list[Forecast]
     sunrise: list[datetime]
     sunset: list[datetime]
+
+@dataclass
+class CurrentPollen(object):
+    stationAbbr: str
+    timestamp: datetime
+    birch: FloatValue
+    grasses: FloatValue
+    alder: FloatValue
+    hazel: FloatValue
+    beech: FloatValue
+    ash: FloatValue
+    oak: FloatValue
 
 class MeteoClient(object):
     language: str = "en"
@@ -264,7 +278,7 @@ class MeteoClient(object):
             with requests.get(url, stream = True) as r:
                 lines = (line.decode(encoding) for line in r.iter_lines())
                 yield from csv.DictReader(lines, delimiter=';')
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException as _:
             logger.error("Connection failure.", exc_info=1)
             return None
 
@@ -276,6 +290,45 @@ class MeteoClient(object):
                 { "User-Agent": FORECAST_USER_AGENT,
                     "Accept-Language": language,
                     "Accept": "application/json" }).json()
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException as _:
             logger.error("Connection failure.", exc_info=1)
             return None
+
+    def get_pollen_station_list(self) -> list[StationInfo]:
+        station_list = self._get_csv_dictionary_for_url(POLLEN_STATIONS_URL, encoding='latin-1')
+        if station_list is None:
+            return None
+        stations = []
+        for row in station_list:
+            stations.append(StationInfo(row.get('station_name'),
+                                  row.get('station_abbr'),
+                                  row.get('station_type_en'),
+                                  to_float(row.get('station_height_masl')),
+                                  to_float(row.get('station_coordinates_wgs84_lat')),
+                                  to_float(row.get('station_coordinates_wgs84_lon')),
+                                  row.get('station_canton')))
+        if len(stations) == 0:
+            return None
+        return stations
+
+    def get_current_pollen_for_station(self, stationAbbrev: str) -> CurrentPollen | None:
+        url = POLLEN_DATA_URL.format(stationAbbrev.lower(), stationAbbrev.lower())
+        print("Loading " + url)
+        pollen_csv = self._get_csv_dictionary_for_url(url, encoding='latin-1')
+        pollen_data = []
+        for row in pollen_csv:
+            pollen_data.append(CurrentPollen(
+                row["station_abbr"],
+                datetime.strptime(row["reference_timestamp"], '%d.%m.%Y %H:%M').replace(tzinfo=UTC),
+                (to_float(row.get("kabetuh0")), 'No/m3'),
+                (to_float(row.get("khpoach0")), 'No/m3'),
+                (to_float(row.get("kaalnuh0")), 'No/m3'),
+                (to_float(row.get("kacoryh0")), 'No/m3'),
+                (to_float(row.get("kafaguh0")), 'No/m3'),
+                (to_float(row.get("kafraxh0")), 'No/m3'),
+                (to_float(row.get("kaquerh0")), 'No/m3')
+            ))
+        pollen_data.sort(key = lambda x: x.timestamp, reverse=True)
+        if len(pollen_data) > 0:
+            return pollen_data[0]
+        return None

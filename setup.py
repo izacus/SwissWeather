@@ -1,7 +1,7 @@
 from setuptools import setup, Extension
 
 setup(name="SwissWeather",
-      version="1.0.0",
+      version="1.1.0",
       description="A client to retrieve current weather and forecast from Swiss MeteoSwiss service.",      
       license="GPLv2+",
       author="Jernej Virag",
