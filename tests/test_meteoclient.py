@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import unittest
 import os
 import responses
-from swissweather.meteo import MeteoClient
+from swissweather.meteo import MeteoClient, WarningLevel, WarningType
 
 TEST_PATH = os.path.dirname(os.path.realpath(__file__))
 
@@ -24,6 +24,23 @@ class TestMeteoClient(unittest.TestCase):
         client = MeteoClient()    
         forecast = client.get_forecast(9999)
         self.assertIsNotNone(forecast)
+        self.assertEqual(forecast.warnings[0].warningType, WarningType.FOREST_FIRES)
+        self.assertEqual(forecast.warnings[0].warningLevel, WarningLevel.SIGNIFICANT_HAZARD)
+
+    @responses.activate
+    def test_forecast_broken_warnings_response(self):
+        responses.add(**{
+            'method'         : responses.GET,
+            'url'            : 'https://app-prod-ws.meteoswiss-app.ch/v1/plzDetail?plz=999900',
+            'body'           : '{ "warnings": [ { "warnLevel": 485 }] }',
+            'status'         : 200,
+            'content_type'   : 'application/json',
+        })
+
+        client = MeteoClient()
+        forecast = client.get_forecast(9999)
+        self.assertIsNotNone(forecast)
+        self.assertEqual(forecast.warnings, [])
 
     @responses.activate
     def test_forecast_broken_response(self):

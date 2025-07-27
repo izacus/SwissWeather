@@ -1,4 +1,5 @@
 import csv
+from enum import IntEnum
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import itertools
@@ -109,6 +110,39 @@ class Forecast:
     windDirection: FloatValue | None = None
     windGustSpeed: FloatValue | None = None
 
+class WarningLevel(IntEnum):
+    NO_DANGER = 0
+    NO_OR_MINIMAL_HAZARD = 1
+    MODERATE_HAZARD = 2
+    SIGNIFICANT_HAZARD = 3
+    SEVERE_HAZARD = 4
+    VERY_SEVERE_HAZARD = 5
+
+class WarningType(IntEnum):
+    WIND = 0
+    THUNDERSTORMS = 1
+    RAIN = 2
+    SNOW = 3
+    SLIPPERY_ROADS = 4
+    FROST = 5
+    THAW = 6
+    HEAT_WAVES = 7
+    AVALANCHES = 8
+    EARTHQUAKES = 9
+    FOREST_FIRES = 10
+    FLOOD = 11
+    DROUGHT = 12
+    UNKNOWN = 99
+
+@dataclass
+class Warning(object):
+    warningType: WarningType
+    warningLevel: WarningLevel
+    text: str
+    htmlText: str
+    outlook: bool
+    links: list[tuple[str, str]]
+
 @dataclass
 class WeatherForecast(object):
     current: CurrentState
@@ -116,6 +150,7 @@ class WeatherForecast(object):
     hourlyForecast: list[Forecast]
     sunrise: list[datetime]
     sunset: list[datetime]
+    warnings: list[Warning]
 
 @dataclass
 class CurrentPollen(object):
@@ -180,7 +215,6 @@ class MeteoClient(object):
             (to_float(csv_row.get('pp0qnhs0', None)), 'hPa'),
         )
 
-
     ## Forecast
     def get_forecast(self, postCode) -> WeatherForecast | None:
         forecastJson = self._get_forecast_json(postCode, self.language)
@@ -191,6 +225,7 @@ class MeteoClient(object):
         currentState = self._get_current_state(forecastJson)
         dailyForecast = self._get_daily_forecast(forecastJson)
         hourlyForecast = self._get_hourly_forecast(forecastJson)
+        warnings = self._get_weather_warnings(forecastJson)
 
         sunrises = None
         sunriseJson = forecastJson.get("graph", {}).get("sunrise", None)
@@ -202,7 +237,7 @@ class MeteoClient(object):
         if sunsetJson is not None:
             sunsets = [datetime.fromtimestamp(epoch / 1000, UTC) for epoch in sunsetJson]
 
-        return WeatherForecast(currentState, dailyForecast, hourlyForecast, sunrises, sunsets)
+        return WeatherForecast(currentState, dailyForecast, hourlyForecast, sunrises, sunsets, warnings)
 
     def _get_current_state(self, forecastJson) -> CurrentState | None:
         if "currentWeather" not in forecastJson:
@@ -243,7 +278,6 @@ class MeteoClient(object):
             return None
         startTimestamp = datetime.fromtimestamp(startTimestampEpoch / 1000, UTC)
 
-
         forecast = []
         temperatureMaxList = [ (value, "°C") for value in graphJson.get("temperatureMax1h", [])]
         temperatureMeanList = [ (value, "°C") for value in graphJson.get("temperatureMean1h", [])]
@@ -265,6 +299,26 @@ class MeteoClient(object):
             forecast.append(Forecast(ts, icon, ICON_TO_CONDITION_MAP.get(icon), tMax, tMin, precipitation, windSpeed=windSpeed, windDirection=windDirection,
                                       windGustSpeed=windGustSpeed, temperatureMean=tMean))
         return forecast
+
+    def _get_weather_warnings(self, forecastJson) -> list[Warning]:
+        warningsJson = forecastJson.get("warnings", None)
+        if warningsJson is None:
+            return []
+
+        warnings = []
+        for warningJson in warningsJson:
+            try:
+                warning = Warning(
+                    int(warningJson.get("warnType")),
+                    int(warningJson.get("warnLevel")),
+                    warningJson.get("text"),
+                    warningJson.get("htmlText"),
+                    bool(warningJson.get("outlook")),
+                    [(link.get("text"), link.get("url")) for link in warningJson.get("links")])
+                warnings.append(warning)
+            except Exception as e:
+                logger.error("Failed to parse warning", exc_info=1)
+        return warnings
 
     def _get_current_weather_line_for_station(self, station):
         if station is None:
