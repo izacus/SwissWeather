@@ -2,14 +2,6 @@
 
 A Python library to access weather data from the Swiss Federal Office of Meteorology and Climatology (MeteoSwiss).
 
-## Installation
-
-Use pip to install the library:
-
-```bash
-pip install swissweather
-```
-
 ## Usage
 
 ### Weather Forecast
