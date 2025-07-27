@@ -141,6 +141,8 @@ class Warning(object):
     text: str
     htmlText: str
     outlook: bool
+    validFrom: datetime | None
+    validTo: datetime | None
     links: list[tuple[str, str]]
 
 @dataclass
@@ -308,12 +310,23 @@ class MeteoClient(object):
         warnings = []
         for warningJson in warningsJson:
             try:
+                validFrom = None
+                validTo = None
+                validFromEpoch = to_int(warningJson.get("validFrom"))
+                validToEpoch = to_int(warningJson.get("validTo"))
+                if validFromEpoch is not None:
+                    validFrom = datetime.fromtimestamp(validFromEpoch / 1000, UTC)
+                if validToEpoch is not None:
+                    validTo = datetime.fromtimestamp(validToEpoch / 1000, UTC)
+
                 warning = Warning(
-                    int(warningJson.get("warnType")),
-                    int(warningJson.get("warnLevel")),
+                    to_int(warningJson.get("warnType")),
+                    to_int(warningJson.get("warnLevel")),
                     warningJson.get("text"),
                     warningJson.get("htmlText"),
                     bool(warningJson.get("outlook")),
+                    validFrom,
+                    validTo,
                     [(link.get("text"), link.get("url")) for link in warningJson.get("links")])
                 warnings.append(warning)
             except Exception as e:

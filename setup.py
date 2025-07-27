@@ -1,7 +1,7 @@
 from setuptools import setup, Extension
 
 setup(name="SwissWeather",
-      version="1.2.0",
+      version="1.2.1",
       description="A client to retrieve current weather and forecast from Swiss MeteoSwiss service.",      
       license="GPLv2+",
       author="Jernej Virag",
@@ -10,7 +10,6 @@ setup(name="SwissWeather",
       install_requires = ["requests==2.28.1"],
       tests_require = ["responses==0.13.3", "pytest==7.1.2"],
       classifiers=[
-        "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
         "Operating System :: OS Independent",
         "Intended Audience :: Developers",
         "Development Status :: 5 - Production/Stable",

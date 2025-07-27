@@ -26,6 +26,8 @@ class TestMeteoClient(unittest.TestCase):
         self.assertIsNotNone(forecast)
         self.assertEqual(forecast.warnings[0].warningType, WarningType.FOREST_FIRES)
         self.assertEqual(forecast.warnings[0].warningLevel, WarningLevel.SIGNIFICANT_HAZARD)
+        self.assertIsNotNone(forecast.warnings[0].validFrom)
+        self.assertIsNone(forecast.warnings[0].validTo)
 
     @responses.activate
     def test_forecast_broken_warnings_response(self):
